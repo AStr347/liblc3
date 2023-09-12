@@ -28,8 +28,7 @@
 #include <errno.h>
 
 #include <lc3.h>
-#include "lc3bin.h"
-#include "wave.h"
+#include <lc3_iface.h>
 
 
 /**
@@ -142,119 +141,27 @@ static unsigned clock_us(void)
 int main(int argc, char *argv[])
 {
     /* --- Read parameters --- */
-
     struct parameters p = parse_args(argc, argv);
-    FILE *fp_in = stdin, *fp_out = stdout;
-
-    if (p.fname_in && (fp_in = fopen(p.fname_in, "rb")) == NULL)
-        error(errno, "%s", p.fname_in);
-
-    if (p.fname_out && (fp_out = fopen(p.fname_out, "wb")) == NULL)
-        error(errno, "%s", p.fname_out);
-
-    if (p.srate_hz && !LC3_CHECK_SR_HZ(p.srate_hz))
-        error(EINVAL, "Samplerate %d Hz", p.srate_hz);
-
-    /* --- Check parameters --- */
 
     int frame_us = p.frame_ms * 1000;
-    int srate_hz, nch, nsamples;
-    int pcm_sbits, pcm_sbytes;
 
-    if (wave_read_header(fp_in,
-            &pcm_sbits, &pcm_sbytes, &srate_hz, &nch, &nsamples) < 0)
-        error(EINVAL, "Bad or unsupported WAVE input file");
-
-    if (p.bitrate <= 0)
-        error(EINVAL, "Bitrate");
-
-    if (!LC3_CHECK_DT_US(frame_us))
-        error(EINVAL, "Frame duration");
-
-    if (!LC3_CHECK_SR_HZ(srate_hz) || (p.srate_hz && p.srate_hz > srate_hz))
-        error(EINVAL, "Samplerate %d Hz", srate_hz);
-
-    if (pcm_sbits != 16 && pcm_sbits != 24)
-        error(EINVAL, "Bitdepth %d", pcm_sbits);
-
-    if ((pcm_sbits == 16 && pcm_sbytes != 16/8) ||
-        (pcm_sbits == 24 && pcm_sbytes != 24/8 && pcm_sbytes != 32/8))
-        error(EINVAL, "Sample storage on %d bytes", pcm_sbytes);
-
-    if (nch  < 1 || nch  > 2)
-        error(EINVAL, "Number of channels %d", nch);
-
-    int enc_srate_hz = !p.srate_hz ? srate_hz : p.srate_hz;
-    int enc_samples = !p.srate_hz ? nsamples :
-        ((int64_t)nsamples * enc_srate_hz) / srate_hz;
-
-    lc3bin_write_header(fp_out,
-        frame_us, enc_srate_hz, p.bitrate, nch, enc_samples);
-
-    /* --- Setup encoding --- */
-
-    int8_t alignas(int32_t) pcm[2 * LC3_MAX_FRAME_SAMPLES*4];
-    uint8_t out[2 * LC3_MAX_FRAME_BYTES];
-    lc3_encoder_t enc[2];
-
-    int frame_bytes = lc3_frame_bytes(frame_us, p.bitrate / nch);
-    int frame_samples = lc3_frame_samples(frame_us, srate_hz);
-    int encode_samples = nsamples + lc3_delay_samples(frame_us, srate_hz);
-    enum lc3_pcm_format pcm_fmt =
-        pcm_sbytes == 32/8 ? LC3_PCM_FORMAT_S24 :
-        pcm_sbytes == 24/8 ? LC3_PCM_FORMAT_S24_3LE : LC3_PCM_FORMAT_S16;
-
-    for (int ich = 0; ich < nch; ich++)
-        enc[ich] = lc3_setup_encoder(frame_us, enc_srate_hz, srate_hz,
-            malloc(lc3_encoder_size(frame_us, srate_hz)));
-
-    /* --- Encoding loop --- */
-
-    static const char *dash_line = "========================================";
-
-    int nsec = 0;
     unsigned t0 = clock_us();
 
-    for (int i = 0; i * frame_samples < encode_samples; i++) {
+    /* call encode */
+    ilc3_coder_t coder;
+    lc3_coder_init(&coder,
+                   p.bitrate,
+                   16,
+                   p.srate_hz,
+                   2,
+                   frame_us);
 
-        int nread = wave_read_pcm(fp_in, pcm_sbytes, nch, frame_samples, pcm);
-
-        memset(pcm + nread * nch * pcm_sbytes, 0,
-            nch * (frame_samples - nread) * pcm_sbytes);
-
-        if (floorf(i * frame_us * 1e-6) > nsec) {
-            float progress = fminf(
-                (float)i * frame_samples / encode_samples, 1);
-
-            fprintf(stderr, "%02d:%02d [%-40s]\r",
-                    nsec / 60, nsec % 60,
-                    dash_line + (int)floorf((1 - progress) * 40));
-
-            nsec = (int)(i * frame_us * 1e-6);
-        }
-
-        for (int ich = 0; ich < nch; ich++)
-            lc3_encode(enc[ich],
-                pcm_fmt, pcm + ich * pcm_sbytes, nch,
-                frame_bytes, out + ich * frame_bytes);
-
-        lc3bin_write_data(fp_out, out, nch, frame_bytes);
-    }
+    file_wav_to_lc3(&coder, p.fname_in, p.fname_out);
 
     unsigned t = (clock_us() - t0) / 1000;
-    nsec = encode_samples / srate_hz;
 
-    fprintf(stderr, "%02d:%02d Encoded in %d.%d seconds %20s\n",
-        nsec / 60, nsec % 60, t / 1000, t % 1000, "");
+    fprintf(stderr, "Encoded in %d.%d seconds\n",
+            t / 1000, t % 1000);
 
-    /* --- Cleanup --- */
-
-    for (int ich = 0; ich < nch; ich++)
-        free(enc[ich]);
-
-    if (fp_in != stdin)
-        fclose(fp_in);
-
-    if (fp_out != stdout)
-        fclose(fp_out);
+    return 0;
 }

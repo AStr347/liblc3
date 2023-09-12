@@ -38,6 +38,7 @@ CFLAGS += -std=c11 -Wall -Wextra -Wdouble-promotion -Wvla -pedantic
 
 lib_list :=
 bin_list :=
+so_list :=
 
 define add-lib
     $(eval $(1)_bin ?= $(1).a)
@@ -57,6 +58,13 @@ define add-bin
 
     bin_list += $(1)
     BIN += $($(1)_bin)
+endef
+
+define add-so
+    $(eval $(1)_bin ?= $(1).so)
+    $(eval $(1)_bin := $(addprefix $(BIN_DIR)/,$($(1)_bin)))
+    so_list += $(1)
+    SO += $($(1)_bin)
 endef
 
 define set-target
@@ -93,13 +101,6 @@ include $(SRC_DIR)/makefile.mk
 TOOLS_DIR = tools
 -include $(TOOLS_DIR)/makefile.mk
 
-TEST_DIR := test
--include $(TEST_DIR)/makefile.mk
-
-FUZZ_DIR := fuzz
--include $(FUZZ_DIR)/makefile.mk
-
-
 #
 # Rules
 #
@@ -108,6 +109,7 @@ MAKEFILE_DEPS := $(MAKEFILE_LIST)
 
 $(foreach lib, $(lib_list), $(eval $(call set-target,$(lib))))
 $(foreach bin, $(bin_list), $(eval $(call set-target,$(bin))))
+$(foreach so, $(so_list), $(eval $(call set-target,$(so))))
 
 $(BUILD_DIR)/%.o: %.c $(MAKEFILE_DEPS)
 	@echo "  CC      $(notdir $<)"
@@ -134,6 +136,11 @@ $(LIB): $(MAKEFILE_DEPS)
 	@echo "  AR      $(notdir $@)"
 	$(V)mkdir -p $(dir $@)
 	$(V)$(AR) rcs $@ $(filter %.o,$^)
+
+$(SO): $(MAKEFILE_DEPS)
+	@echo "  CC      $(notdir $@)"
+	$(V)mkdir -p $(dir $@)
+	$(V)$(CC) -shared $(filter %.o,$^) -o $@
 
 $(BIN): $(MAKEFILE_DEPS)
 	@echo "  LD      $(notdir $@)"

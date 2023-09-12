@@ -7,11 +7,10 @@ The LC3 is an efficient low latency audio codec.
 ## Overview
 
 The directory layout is as follows :
+
 - include:      Library interface
 - src:          Source files
 - tools:        Standalone encoder/decoder tools
-- test:         Python implentation, used as reference for unit testing
-- fuzz:         Roundtrip fuzz testing harness
 - build:        Building outputs
 - bin:          Compilation output
 
@@ -20,12 +19,12 @@ The directory layout is as follows :
 The default toolchain used is GCC. Invoke `make` to build the library.
 
 ```sh
-$ make -j
+make -j
 ```
 
 Compiled library `liblc3.a` will be found in `bin` directory.
 
-#### Cross compilation
+### Cross compilation
 
 The cc, as, ld and ar can be selected with respective Makefile variables `CC`,
 `AS`, `LD` and `AR`. The `AS` and `LD` selections are optionnal, and fallback
@@ -38,7 +37,7 @@ bionic libc.
 Following example build for android, using NDK toolset.
 
 ```sh
-$ make -j CC=path_to_android_ndk_prebuilt/toolchain-prefix-clang LIBC=bionic
+make -j CC=path_to_android_ndk_prebuilt/toolchain-prefix-clang LIBC=bionic
 ```
 
 Compiled library will be found in `bin` directory.
@@ -48,7 +47,7 @@ Compiled library will be found in `bin` directory.
 Tools can be all compiled, while involking `make` as follows :
 
 ```sh
-$ make tools
+make tools
 ```
 
 The standalone encoder `elc3` take a `wave` file as input and encode it
@@ -64,69 +63,51 @@ file are omitted.
 In such way you can easly test encoding / decoding loop with :
 
 ```sh
-$ ./elc3 <in.wav> -b <bitrate> | ./dlc3 > <out.wav>
+./elc3 <in.wav> -b <bitrate> | ./dlc3 > <out.wav>
 ```
 
 Adding Linux `aplay` tools, you will be able to instant hear the result :
 
 ```sh
-$ ./elc3 <in.wav> -b <bitrate> | ./dlc3 | aplay
+./elc3 <in.wav> -b <bitrate> | ./dlc3 | aplay
 ```
 
-## Test
+### Use examples
 
-A python implementation of the encoder is provided in `test` diretory.
-The C implementation is unitary validated against this implementation and
-intermediate values given in Appendix C of the specification.
+#### Encode
 
-#### Prerequisite
+encode original.wav (16 bit, 48000 Hz)
+
+mandatory flag:
+
+- b : encoding output bitrate. values interval [16000; 320000]
+
+other flags:
+
+- m : Frame duration in ms (default 10)
+- r : Encoder samplerate (default is input file samplerate). values {8000, 16000, 24000, 32000, 48000}
 
 ```sh
-# apt install python3 python3-dev python3-pip
-$ pip3 install scipy numpy
+./elc3 -b <16000 - 320000> [-m <ms> -r {8000, 16000, 24000, 32000, 48000}] <in.wav> <out.lc3>
 ```
-
-#### Running test suite
 
 ```sh
-$ make test
+./elc3 -b 48000 original.wav out.lc3
 ```
 
-## Fuzzing
+#### Decode
 
-Roundtrip fuzz testing harness is available in `fuzz` directory.
-LLVM `clang` and `clang++` compilers are needed to run fuzzing.
+decode out.lc3, decode can work without flags
 
-The encoder and decoder fuzzers can be run, for 1 million iterations, using
-target respectively `dfuzz` and `efuzz`. The `fuzz` target runs both.
+flags:
+
+- b : sample bit size (default 16) {16, 24}
+- r : output samplerate (can be more than encoded samplerate) {8000, 16000, 24000, 32000, 48000}
 
 ```sh
-$ make efuzz    # Run encoder fuzzer for 1M iteration
-$ make dfuzz    # Run decoder fuzzer for 1M iteration
-$ make fuzz -j  # Run encoder and decoder fuzzers in parallel
+./dlc3 [-b {16, 24} -r {8000, 16000, 24000, 32000, 48000}] <in.lc3> <out.wav>
 ```
-
-## Qualification / Conformance
-
-The implementation is qualified under the [_QDID 194161_](https://launchstudio.bluetooth.com/ListingDetails/160904) as part of Google Fluoride 1.5.
-
-For more detail on conformance, refer to [_Bluetooth Conformance
-Documents and scripts_](https://www.bluetooth.com/specifications/specs/low-complexity-communication-codec-1-0/)
-
-## Listening Test
-
-The codec was [_here_](https://hydrogenaud.io/index.php/topic,122575.0.html)
-subjectively evaluated in a blind listening test.
-
-## Meson build system
-
-Meson build system is also available to build and install lc3 codec in Linux
-environment.
 
 ```sh
-$ meson build
-$ cd build
-$ ninja
-$ sudo ninja install
+./dlc3 out.lc3 decoded48000.wav
 ```
-

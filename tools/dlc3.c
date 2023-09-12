@@ -30,15 +30,7 @@
 #include <lc3.h>
 #include "lc3bin.h"
 #include "wave.h"
-
-#ifndef MIN
-#define MIN(a, b)  ( (a) < (b) ? (a) : (b) )
-#endif
-
-#ifndef MAX
-#define MAX(a, b)  ( (a) > (b) ? (a) : (b) )
-#endif
-
+#include <lc3_iface.h>
 
 /**
  * Error handling
@@ -143,15 +135,7 @@ static unsigned clock_us(void)
 int main(int argc, char *argv[])
 {
     /* --- Read parameters --- */
-
     struct parameters p = parse_args(argc, argv);
-    FILE *fp_in = stdin, *fp_out = stdout;
-
-    if (p.fname_in && (fp_in = fopen(p.fname_in, "rb")) == NULL)
-        error(errno, "%s", p.fname_in);
-
-    if (p.fname_out && (fp_out = fopen(p.fname_out, "wb")) == NULL)
-        error(errno, "%s", p.fname_out);
 
     if (p.srate_hz && !LC3_CHECK_SR_HZ(p.srate_hz))
         error(EINVAL, "Samplerate %d Hz", p.srate_hz);
@@ -161,97 +145,22 @@ int main(int argc, char *argv[])
 
     /* --- Check parameters --- */
 
-    int frame_us, srate_hz, nch, nsamples;
-
-    if (lc3bin_read_header(fp_in, &frame_us, &srate_hz, &nch, &nsamples) < 0)
-        error(EINVAL, "LC3 binary input file");
-
-    if (nch  < 1 || nch  > 2)
-        error(EINVAL, "Number of channels %d", nch);
-
-    if (!LC3_CHECK_DT_US(frame_us))
-        error(EINVAL, "Frame duration");
-
-    if (!LC3_CHECK_SR_HZ(srate_hz) || (p.srate_hz && p.srate_hz < srate_hz))
-         error(EINVAL, "Samplerate %d Hz", srate_hz);
-
-    int pcm_sbits = p.bitdepth;
-    int pcm_sbytes = pcm_sbits / 8;
-
-    int pcm_srate_hz = !p.srate_hz ? srate_hz : p.srate_hz;
-    int pcm_samples = !p.srate_hz ? nsamples :
-        ((int64_t)nsamples * pcm_srate_hz) / srate_hz;
-
-    wave_write_header(fp_out,
-          pcm_sbits, pcm_sbytes, pcm_srate_hz, nch, pcm_samples);
-
-    /* --- Setup decoding --- */
-
-    uint8_t in[2 * LC3_MAX_FRAME_BYTES];
-    int8_t alignas(int32_t) pcm[2 * LC3_MAX_FRAME_SAMPLES*4];
-    lc3_decoder_t dec[2];
-
-    int frame_samples = lc3_frame_samples(frame_us, pcm_srate_hz);
-    int encode_samples = pcm_samples +
-        lc3_delay_samples(frame_us, pcm_srate_hz);
-    enum lc3_pcm_format pcm_fmt =
-        pcm_sbits == 24 ? LC3_PCM_FORMAT_S24_3LE : LC3_PCM_FORMAT_S16;
-
-    for (int ich = 0; ich < nch; ich++)
-        dec[ich] = lc3_setup_decoder(frame_us, srate_hz, p.srate_hz,
-            malloc(lc3_decoder_size(frame_us, pcm_srate_hz)));
-
-    /* --- Decoding loop --- */
-
-    static const char *dash_line = "========================================";
-
-    int nsec = 0;
     unsigned t0 = clock_us();
 
-    for (int i = 0; i * frame_samples < encode_samples; i++) {
-
-        int frame_bytes = lc3bin_read_data(fp_in, nch, in);
-
-        if (floorf(i * frame_us * 1e-6) > nsec) {
-
-            float progress = fminf((float)i * frame_samples / pcm_samples, 1);
-
-            fprintf(stderr, "%02d:%02d [%-40s]\r",
-                    nsec / 60, nsec % 60,
-                    dash_line + (int)floorf((1 - progress) * 40));
-
-            nsec = rint(i * frame_us * 1e-6);
-        }
-
-        if (frame_bytes <= 0)
-            memset(pcm, 0, nch * frame_samples * pcm_sbytes);
-        else
-            for (int ich = 0; ich < nch; ich++)
-                lc3_decode(dec[ich],
-                    in + ich * frame_bytes, frame_bytes,
-                    pcm_fmt, pcm + ich * pcm_sbytes, nch);
-
-        int pcm_offset = i > 0 ? 0 : encode_samples - pcm_samples;
-        int pcm_nwrite = MIN(frame_samples - pcm_offset,
-            encode_samples - i*frame_samples);
-
-        wave_write_pcm(fp_out, pcm_sbytes, pcm, nch, pcm_offset, pcm_nwrite);
-    }
+    ilc3_coder_t decoder;
+    lc3_coder_init(&decoder,
+                   16000,
+                   p.bitdepth,
+                   p.srate_hz,
+                   2,
+                   0);
+    
+    file_lc3_to_wav(&decoder, p.fname_in, p.fname_out);
 
     unsigned t = (clock_us() - t0) / 1000;
-    nsec = nsamples / srate_hz;
 
-    fprintf(stderr, "%02d:%02d Decoded in %d.%03d seconds %20s\n",
-        nsec / 60, nsec % 60, t / 1000, t % 1000, "");
+    fprintf(stderr, "Decoded in %d.%03d seconds \n",
+            t / 1000, t % 1000);
 
-    /* --- Cleanup --- */
-
-    for (int ich = 0; ich < nch; ich++)
-        free(dec[ich]);
-
-    if (fp_in != stdin)
-        fclose(fp_in);
-
-    if (fp_out != stdout)
-        fclose(fp_out);
+    return 0;
 }

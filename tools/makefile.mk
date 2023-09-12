@@ -15,9 +15,7 @@
 #
 
 elc3_src += \
-    $(TOOLS_DIR)/elc3.c \
-    $(TOOLS_DIR)/lc3bin.c \
-    $(TOOLS_DIR)/wave.c
+    $(TOOLS_DIR)/elc3.c
 
 elc3_lib += liblc3
 elc3_ldlibs += m
@@ -27,9 +25,7 @@ $(eval $(call add-bin,elc3))
 
 
 dlc3_src += \
-    $(TOOLS_DIR)/dlc3.c \
-    $(TOOLS_DIR)/lc3bin.c \
-    $(TOOLS_DIR)/wave.c
+    $(TOOLS_DIR)/dlc3.c
 
 dlc3_lib += liblc3
 dlc3_ldlibs += m
